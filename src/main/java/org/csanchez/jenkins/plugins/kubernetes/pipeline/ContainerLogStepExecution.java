@@ -19,15 +19,14 @@ package org.csanchez.jenkins.plugins.kubernetes.pipeline;
 import hudson.model.TaskListener;
 import hudson.util.LogTaskListener;
 import io.fabric8.kubernetes.client.KubernetesClient;
-import io.fabric8.kubernetes.client.dsl.*;
-import org.jenkinsci.plugins.workflow.steps.StepContext;
-import org.jenkinsci.plugins.workflow.steps.SynchronousNonBlockingStepExecution;
-
-import java.io.*;
+import io.fabric8.kubernetes.client.dsl.TailPrettyLoggable;
+import io.fabric8.kubernetes.client.dsl.TimeTailPrettyLoggable;
+import java.io.IOException;
+import java.io.PrintStream;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-
-import static org.csanchez.jenkins.plugins.kubernetes.pipeline.Resources.closeQuietly;
+import org.jenkinsci.plugins.workflow.steps.StepContext;
+import org.jenkinsci.plugins.workflow.steps.SynchronousNonBlockingStepExecution;
 
 public class ContainerLogStepExecution extends SynchronousNonBlockingStepExecution<String> {
     private static final long serialVersionUID = 5588861066775717487L;
@@ -46,7 +45,7 @@ public class ContainerLogStepExecution extends SynchronousNonBlockingStepExecuti
         StepContext context = getContext();
         try {
             l = context.get(TaskListener.class);
-        } catch (Exception x) {
+        } catch (IOException | InterruptedException x) {
             LOGGER.log(Level.WARNING, "Failed to find TaskListener in context");
         } finally {
             if (l == null) {
@@ -71,18 +70,21 @@ public class ContainerLogStepExecution extends SynchronousNonBlockingStepExecuti
             client = nodeContext.connectToCloud();
 
             String podName = nodeContext.getPodName();
-            ContainerResource<String, LogWatch, InputStream, PipedOutputStream, OutputStream, PipedInputStream,
-                    String, ExecWatch> container = client.pods()
-                    .inNamespace(nodeContext.getNamespace())
-                    .withName(podName)
-                    .inContainer(containerName);
 
-            TimeTailPrettyLoggable<String, LogWatch> limited = limitBytes > 0 ? container.limitBytes(limitBytes) : container;
+            TimeTailPrettyLoggable limited = limitBytes > 0
+                    ? client.pods() //
+                            .inNamespace(nodeContext.getNamespace()) //
+                            .withName(podName)
+                            .inContainer(containerName)
+                            .limitBytes(limitBytes)
+                    : client.pods() //
+                            .inNamespace(nodeContext.getNamespace()) //
+                            .withName(podName)
+                            .inContainer(containerName);
 
-            TailPrettyLoggable<String, LogWatch> since = sinceSeconds > 0 ? limited.sinceSeconds(sinceSeconds) : limited;
+            TailPrettyLoggable since = sinceSeconds > 0 ? limited.sinceSeconds(sinceSeconds) : limited;
 
-            PrettyLoggable<String, LogWatch> tailed = tailingLines > 0 ? since.tailingLines(tailingLines) : since;
-            String log = tailed.getLog();
+            String log = (tailingLines > 0 ? since.tailingLines(tailingLines) : since).getLog();
 
             if (returnLog) {
                 return log;
@@ -105,18 +107,12 @@ public class ContainerLogStepExecution extends SynchronousNonBlockingStepExecuti
             logger().println(message);
             LOGGER.log(Level.WARNING, message, e);
             return "";
-        } finally {
-            closeQuietly(getContext(), client);
         }
     }
 
     @Override
     public void stop(Throwable cause) throws Exception {
         LOGGER.log(Level.FINE, "Stopping container log step.");
-        try {
-            super.stop(cause);
-        } finally {
-            closeQuietly(getContext(), client);
-        }
+        super.stop(cause);
     }
 }

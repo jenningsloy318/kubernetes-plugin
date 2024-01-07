@@ -24,30 +24,51 @@
 
 package org.csanchez.jenkins.plugins.kubernetes.volumes;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
+import hudson.Extension;
+import hudson.model.Descriptor;
+import io.fabric8.kubernetes.api.model.SecretVolumeSource;
+import io.fabric8.kubernetes.api.model.Volume;
+import io.fabric8.kubernetes.api.model.VolumeBuilder;
+import org.apache.commons.lang.StringUtils;
 import org.jenkinsci.Symbol;
 import org.kohsuke.stapler.DataBoundConstructor;
 
-import hudson.Extension;
-import hudson.model.Descriptor;
-import io.fabric8.kubernetes.api.model.Volume;
-import io.fabric8.kubernetes.api.model.VolumeBuilder;
-
+@SuppressFBWarnings(
+        value = "SE_NO_SERIALVERSIONID",
+        justification = "Serialization happens exclusively through XStream and not Java Serialization.")
 public class SecretVolume extends PodVolume {
-
     private String mountPath;
     private String secretName;
+    private String defaultMode;
+    private Boolean optional;
 
     @DataBoundConstructor
-    public SecretVolume(String mountPath, String secretName) {
+    public SecretVolume(String mountPath, String secretName, String defaultMode, Boolean optional) {
         this.mountPath = mountPath;
         this.secretName = secretName;
+        this.defaultMode = defaultMode;
+        this.optional = optional;
+    }
+
+    public SecretVolume(String mountPath, String secretName) {
+        this(mountPath, secretName, null, false);
     }
 
     @Override
     public Volume buildVolume(String volumeName) {
+        SecretVolumeSource secretVolumeSource = new SecretVolumeSource();
+        secretVolumeSource.setSecretName(getSecretName());
+        secretVolumeSource.setOptional(getOptional());
+
+        if (StringUtils.isNotBlank(defaultMode)) {
+            secretVolumeSource.setDefaultMode(Integer.parseInt(getDefaultMode()));
+        }
+
         return new VolumeBuilder()
                 .withName(volumeName)
-                .withNewSecret().withSecretName(getSecretName()).endSecret()
+                .withNewSecretLike(secretVolumeSource)
+                .endSecret()
                 .build();
     }
 
@@ -58,6 +79,20 @@ public class SecretVolume extends PodVolume {
     @Override
     public String getMountPath() {
         return mountPath;
+    }
+
+    public String getDefaultMode() {
+        return defaultMode;
+    }
+
+    public Boolean getOptional() {
+        return optional;
+    }
+
+    @Override
+    public String toString() {
+        return "SecretVolume [mountPath=" + mountPath + ", secretName=" + secretName + ", defaultMode=" + defaultMode
+                + ", optional=" + String.valueOf(optional) + "]";
     }
 
     @Extension

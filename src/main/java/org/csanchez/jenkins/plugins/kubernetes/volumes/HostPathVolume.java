@@ -24,28 +24,39 @@
 
 package org.csanchez.jenkins.plugins.kubernetes.volumes;
 
-import org.jenkinsci.Symbol;
-import org.kohsuke.stapler.DataBoundConstructor;
-
+import edu.umd.cs.findbugs.annotations.CheckForNull;
+import edu.umd.cs.findbugs.annotations.NonNull;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import hudson.Extension;
 import hudson.model.Descriptor;
 import io.fabric8.kubernetes.api.model.Volume;
 import io.fabric8.kubernetes.api.model.VolumeBuilder;
+import org.jenkinsci.Symbol;
+import org.kohsuke.stapler.DataBoundConstructor;
 
+@SuppressFBWarnings(
+        value = "SE_NO_SERIALVERSIONID",
+        justification = "Serialization happens exclusively through XStream and not Java Serialization.")
 public class HostPathVolume extends PodVolume {
     private String mountPath;
     private String hostPath;
 
+    @CheckForNull
+    private Boolean readOnly;
+
     @DataBoundConstructor
-    public HostPathVolume(String hostPath, String mountPath) {
+    public HostPathVolume(String hostPath, String mountPath, Boolean readOnly) {
         this.hostPath = hostPath;
         this.mountPath = mountPath;
+        this.readOnly = readOnly;
     }
 
     public Volume buildVolume(String volumeName) {
-        return new VolumeBuilder()
-                .withName(volumeName)
-                .withNewHostPath(getHostPath())
+        return new VolumeBuilder() //
+                .withName(volumeName) //
+                .withNewHostPath()
+                .withPath(getHostPath())
+                .endHostPath() //
                 .build();
     }
 
@@ -57,6 +68,11 @@ public class HostPathVolume extends PodVolume {
         return hostPath;
     }
 
+    @NonNull
+    public Boolean getReadOnly() {
+        return readOnly != null && readOnly;
+    }
+
     @Extension
     @Symbol("hostPathVolume")
     public static class DescriptorImpl extends Descriptor<PodVolume> {
@@ -64,5 +80,10 @@ public class HostPathVolume extends PodVolume {
         public String getDisplayName() {
             return "Host Path Volume";
         }
+    }
+
+    @Override
+    public String toString() {
+        return "HostPathVolume [mountPath=" + mountPath + ", hostPath=" + hostPath + "]";
     }
 }

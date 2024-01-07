@@ -1,0 +1,18 @@
+<div>
+  <p>
+  With this option it is possible to connect directly to the TCP agent listener port.
+  This skips the connection to an HTTP(S) port to retrieve some metadata.
+  </p>
+
+  <p>
+  This is useful in scenarios where the controller does not expose an HTTP(S) port, for example
+  <a target="_blank" href="https://github.com/jenkinsci/jenkinsfile-runner">Jenkinsfile Runner</a>,
+  but more commonly if you simply wish to optimize the connection slightly.
+  </p>
+
+  <p>
+    <b>Note:</b> In <i>Direct Connection</i> mode agents will not be able to reconnect to a restarted controller if a <i>Random</i> 'TCP port for inbound agents' is configured!<br/>
+    <b>Note:</b> <i>Direct Connection</i> does not work with the currently available <code>jenkins/inbound-agent:windowsservercore-1809</code> image.
+  </p>
+
+</div>

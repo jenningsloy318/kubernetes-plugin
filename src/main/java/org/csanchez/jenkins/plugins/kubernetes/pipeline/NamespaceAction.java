@@ -1,16 +1,18 @@
 package org.csanchez.jenkins.plugins.kubernetes.pipeline;
 
-import java.io.IOException;
-import java.util.EmptyStackException;
-import java.util.logging.Logger;
-
 import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import hudson.BulkChange;
 import hudson.model.Run;
-import jenkins.model.RunAction2;
+import java.io.IOException;
+import java.util.EmptyStackException;
+import java.util.logging.Logger;
 
-public class NamespaceAction extends AbstractInvisibleRunAction2 implements RunAction2 {
+/**
+ * Use <pre>getContext().get(PodTemplateContext.class)</pre> instead.
+ */
+@Deprecated
+public class NamespaceAction extends AbstractInvisibleRunAction2 {
 
     private static final Logger LOGGER = Logger.getLogger(NamespaceAction.class.getName());
 

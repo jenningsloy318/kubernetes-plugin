@@ -1,17 +1,19 @@
 package org.csanchez.jenkins.plugins.kubernetes.pipeline;
 
+import edu.umd.cs.findbugs.annotations.NonNull;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
+import hudson.BulkChange;
+import hudson.model.Run;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.logging.Logger;
 
-import edu.umd.cs.findbugs.annotations.NonNull;
-import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
-import hudson.BulkChange;
-import hudson.model.Run;
-import jenkins.model.RunAction2;
-
-public class PodTemplateAction extends AbstractInvisibleRunAction2 implements RunAction2 {
+/**
+ * Use <pre>getContext().get(PodTemplateContext.class)</pre> instead.
+ */
+@Deprecated
+public class PodTemplateAction extends AbstractInvisibleRunAction2 {
 
     private static final Logger LOGGER = Logger.getLogger(PodTemplateAction.class.getName());
 
@@ -70,7 +72,6 @@ public class PodTemplateAction extends AbstractInvisibleRunAction2 implements Ru
                 return template;
             } finally {
                 bc.abort();
-                return null;
             }
         }
     }
@@ -89,9 +90,7 @@ public class PodTemplateAction extends AbstractInvisibleRunAction2 implements Ru
                 sb.append(" ");
             }
             sb.append(template);
-
         }
         return sb.toString();
     }
-
 }

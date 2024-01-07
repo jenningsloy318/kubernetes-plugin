@@ -1,18 +1,21 @@
 package org.csanchez.jenkins.plugins.kubernetes;
 
-import org.jenkinsci.plugins.plaincredentials.StringCredentials;
-import org.kohsuke.stapler.DataBoundConstructor;
-
+import com.cloudbees.plugins.credentials.CredentialsProvider;
 import com.cloudbees.plugins.credentials.CredentialsScope;
 import com.cloudbees.plugins.credentials.impl.BaseStandardCredentials;
-
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import hudson.Extension;
 import hudson.util.Secret;
+import org.jenkinsci.plugins.plaincredentials.StringCredentials;
+import org.kohsuke.stapler.DataBoundConstructor;
 
 /**
  * @deprecated Use {@link StringCredentials}
  * @author <a href="mailto:andy.block@gmail.com">Andrew Block</a>
  */
+@SuppressFBWarnings(
+        value = "SE_NO_SERIALVERSIONID",
+        justification = "Serialization happens exclusively through XStream and not Java Serialization.")
 @Deprecated
 public class OpenShiftTokenCredentialImpl extends BaseStandardCredentials implements TokenProducer {
 
@@ -28,9 +31,9 @@ public class OpenShiftTokenCredentialImpl extends BaseStandardCredentials implem
     public String getToken(String serviceAddress, String caCertData, boolean skipTlsVerify) {
         return secret.getPlainText();
     }
-    
+
     public Secret getSecret() {
-    	return secret;
+        return secret;
     }
 
     @Extension
@@ -38,8 +41,12 @@ public class OpenShiftTokenCredentialImpl extends BaseStandardCredentials implem
 
         @Override
         public String getDisplayName() {
-            return "OpenShift OAuth token";
+            return "OpenShift OAuth token (Deprecated)";
+        }
+
+        @Override
+        public boolean isApplicable(CredentialsProvider provider) {
+            return false;
         }
     }
-
 }

@@ -3,10 +3,10 @@ package org.csanchez.jenkins.plugins.kubernetes;
 import hudson.Extension;
 import hudson.model.AbstractDescribableImpl;
 import hudson.model.Descriptor;
+import java.io.Serializable;
+import java.util.Objects;
 import org.jenkinsci.Symbol;
 import org.kohsuke.stapler.DataBoundConstructor;
-
-import java.io.Serializable;
 
 public class PodAnnotation extends AbstractDescribableImpl<PodAnnotation> implements Serializable {
 
@@ -44,13 +44,17 @@ public class PodAnnotation extends AbstractDescribableImpl<PodAnnotation> implem
 
         PodAnnotation that = (PodAnnotation) o;
 
-        return key != null ? key.equals(that.key) : that.key == null;
-
+        return Objects.equals(key, that.key);
     }
 
     @Override
     public int hashCode() {
         return key != null ? key.hashCode() : 0;
+    }
+
+    @Override
+    public String toString() {
+        return "PodAnnotation{" + "key='" + key + '\'' + ", value='" + value + '\'' + '}';
     }
 
     @Extension

@@ -24,40 +24,57 @@
 
 package org.csanchez.jenkins.plugins.kubernetes;
 
-import static java.util.logging.Level.*;
+import static java.util.logging.Level.FINE;
+import static java.util.logging.Level.INFO;
+import static java.util.logging.Level.WARNING;
 
-import java.io.IOException;
-import java.io.PrintStream;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.logging.Level;
-import java.util.logging.Logger;
-import java.util.stream.Collectors;
-
-import org.apache.commons.lang.StringUtils;
-import org.kohsuke.stapler.DataBoundConstructor;
-
-import com.google.common.base.Throwables;
-import com.google.common.collect.ImmutableList;
-
+import edu.umd.cs.findbugs.annotations.CheckForNull;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
+import hudson.Functions;
 import hudson.model.TaskListener;
 import hudson.slaves.JNLPLauncher;
 import hudson.slaves.SlaveComputer;
 import io.fabric8.kubernetes.api.model.ContainerStatus;
+import io.fabric8.kubernetes.api.model.ObjectMeta;
 import io.fabric8.kubernetes.api.model.Pod;
 import io.fabric8.kubernetes.client.KubernetesClient;
-import io.fabric8.kubernetes.client.dsl.LogWatch;
-import io.fabric8.kubernetes.client.dsl.PrettyLoggable;
+import io.fabric8.kubernetes.client.KubernetesClientException;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import java.util.stream.Collectors;
+import jenkins.metrics.api.Metrics;
+import org.apache.commons.lang.StringUtils;
+import org.csanchez.jenkins.plugins.kubernetes.pod.retention.Reaper;
+import org.kohsuke.stapler.DataBoundConstructor;
 
 /**
  * Launches on Kubernetes the specified {@link KubernetesComputer} instance.
  */
 public class KubernetesLauncher extends JNLPLauncher {
+    // Report progress every 30 seconds
+    private static final long REPORT_INTERVAL = TimeUnit.SECONDS.toMillis(30L);
+
+    private static final Collection<String> POD_TERMINATED_STATES =
+            Collections.unmodifiableCollection(Arrays.asList("Succeeded", "Failed"));
 
     private static final Logger LOGGER = Logger.getLogger(KubernetesLauncher.class.getName());
 
-    private boolean launched;
+    private final AtomicBoolean launched = new AtomicBoolean(false);
+
+    /**
+     * Provisioning exception if any.
+     */
+    @CheckForNull
+    private transient Throwable problem;
 
     @DataBoundConstructor
     public KubernetesLauncher(String tunnel, String vmargs) {
@@ -70,167 +87,268 @@ public class KubernetesLauncher extends JNLPLauncher {
 
     @Override
     public boolean isLaunchSupported() {
-        return !launched;
+        return !launched.get();
     }
 
     @Override
-    public void launch(SlaveComputer computer, TaskListener listener) {
-        PrintStream logger = listener.getLogger();
-
+    @SuppressFBWarnings(value = "SWL_SLEEP_WITH_LOCK_HELD", justification = "This is fine")
+    public synchronized void launch(SlaveComputer computer, TaskListener listener) {
         if (!(computer instanceof KubernetesComputer)) {
             throw new IllegalArgumentException("This Launcher can be used only with KubernetesComputer");
         }
+        // Activate reaper if it never got activated.
+        Reaper.getInstance().maybeActivate();
         KubernetesComputer kubernetesComputer = (KubernetesComputer) computer;
         computer.setAcceptingTasks(false);
-        KubernetesSlave slave = kubernetesComputer.getNode();
-        if (slave == null) {
+        KubernetesSlave node = kubernetesComputer.getNode();
+        if (node == null) {
             throw new IllegalStateException("Node has been removed, cannot launch " + computer.getName());
         }
-        if (launched) {
-            LOGGER.log(INFO, "Agent has already been launched, activating: {}", slave.getNodeName());
+        if (launched.get()) {
+            LOGGER.log(INFO, "Agent has already been launched, activating: {0}", node.getNodeName());
             computer.setAcceptingTasks(true);
             return;
         }
 
-        KubernetesCloud cloud = slave.getKubernetesCloud();
-        final PodTemplate unwrappedTemplate = slave.getTemplate();
+        String cloudName = node.getCloudName();
+        final PodTemplate template = node.getTemplate();
         try {
+            KubernetesCloud cloud = node.getKubernetesCloud();
             KubernetesClient client = cloud.connect();
-            Pod pod = getPodTemplate(slave, unwrappedTemplate);
+            Pod pod = template.build(node);
+            node.assignPod(pod);
 
-            String podId = pod.getMetadata().getName();
-            String namespace = StringUtils.defaultIfBlank(slave.getNamespace(), client.getNamespace());
+            String podName = pod.getMetadata().getName();
 
-            LOGGER.log(Level.FINE, "Creating Pod: {0} in namespace {1}", new Object[]{podId, namespace});
-            pod = client.pods().inNamespace(namespace).create(pod);
-            LOGGER.log(INFO, "Created Pod: {0} in namespace {1}", new Object[]{podId, namespace});
-            logger.printf("Created Pod: %s in namespace %s%n", podId, namespace);
+            String namespace = Arrays.asList( //
+                            pod.getMetadata().getNamespace(), template.getNamespace(), client.getNamespace()) //
+                    .stream()
+                    .filter(s -> StringUtils.isNotBlank(s))
+                    .findFirst()
+                    .orElse(null);
+            node.setNamespace(namespace);
+
+            LOGGER.log(FINE, () -> "Creating Pod: " + cloudName + " " + namespace + "/" + podName);
+            try {
+                pod = client.pods().inNamespace(namespace).create(pod);
+            } catch (KubernetesClientException e) {
+                Metrics.metricRegistry().counter(MetricNames.CREATION_FAILED).inc();
+                int httpCode = e.getCode();
+                if (400 <= httpCode && httpCode < 500) { // 4xx
+                    if (httpCode == 403 && e.getMessage().contains("is forbidden: exceeded quota")) {
+                        node.getRunListener()
+                                .getLogger()
+                                .printf(
+                                        "WARNING: Unable to create pod: %s %s/%s because kubernetes resource quota exceeded. %n%s%nRetrying...%n%n",
+                                        cloudName, namespace, pod.getMetadata().getName(), e.getMessage());
+                    } else if (httpCode == 409
+                            && e.getMessage().contains("Operation cannot be fulfilled on resourcequotas")) {
+                        // See: https://github.com/kubernetes/kubernetes/issues/67761 ; A retry usually works.
+                        node.getRunListener()
+                                .getLogger()
+                                .printf(
+                                        "WARNING: Unable to create pod: %s %s/%s because kubernetes resource quota update conflict. %n%s%nRetrying...%n%n",
+                                        cloudName, namespace, pod.getMetadata().getName(), e.getMessage());
+                    } else {
+                        node.getRunListener()
+                                .getLogger()
+                                .printf(
+                                        "ERROR: Unable to create pod %s %s/%s.%n%s%n",
+                                        cloudName, namespace, pod.getMetadata().getName(), e.getMessage());
+                        PodUtils.cancelQueueItemFor(pod, e.getMessage());
+                    }
+                } else if (500 <= httpCode && httpCode < 600) { // 5xx
+                    LOGGER.log(FINE, "Kubernetes returned HTTP code {0} {1}. Retrying...", new Object[] {
+                        e.getCode(), e.getStatus()
+                    });
+                } else {
+                    LOGGER.log(WARNING, "Kubernetes returned unhandled HTTP code {0} {1}", new Object[] {
+                        e.getCode(), e.getStatus()
+                    });
+                }
+                throw e;
+            }
+            LOGGER.log(INFO, () -> "Created Pod: " + cloudName + " " + namespace + "/" + podName);
+            listener.getLogger().printf("Created Pod: %s %s/%s%n", cloudName, namespace, podName);
+            Metrics.metricRegistry().counter(MetricNames.PODS_CREATED).inc();
+
+            node.getRunListener().getLogger().printf("Created Pod: %s %s/%s%n", cloudName, namespace, podName);
+            kubernetesComputer.setLaunching(true);
+
+            ObjectMeta podMetadata = pod.getMetadata();
+            template.getWorkspaceVolume().createVolume(client, podMetadata);
+            template.getVolumes().forEach(volume -> volume.createVolume(client, podMetadata));
+
+            client.pods()
+                    .inNamespace(namespace)
+                    .withName(podName)
+                    .waitUntilReady(template.getSlaveConnectTimeout(), TimeUnit.SECONDS);
+
+            LOGGER.log(INFO, () -> "Pod is running: " + cloudName + " " + namespace + "/" + podName);
 
             // We need the pod to be running and connected before returning
             // otherwise this method keeps being called multiple times
-            List<String> validStates = ImmutableList.of("Running");
+            // so wait for agent to be online
+            int waitForSlaveToConnect = template.getSlaveConnectTimeout();
+            int waitedForSlave;
 
-            int i = 0;
-            int j = 100; // wait 600 seconds
-
+            SlaveComputer slaveComputer = null;
+            String status = null;
             List<ContainerStatus> containerStatuses = null;
+            long lastReportTimestamp = System.currentTimeMillis();
+            for (waitedForSlave = 0; waitedForSlave < waitForSlaveToConnect; waitedForSlave++) {
+                slaveComputer = node.getComputer();
+                if (slaveComputer == null) {
+                    Metrics.metricRegistry().counter(MetricNames.LAUNCH_FAILED).inc();
+                    throw new IllegalStateException("Node was deleted, computer is null");
+                }
+                if (slaveComputer.isOnline()) {
+                    break;
+                }
 
-            // wait for Pod to be running
-            for (; i < j; i++) {
-                LOGGER.log(INFO, "Waiting for Pod to be scheduled ({1}/{2}): {0}", new Object[]{podId, i, j});
-                logger.printf("Waiting for Pod to be scheduled (%2$s/%3$s): %1$s%n", podId, i, j);
-
-                Thread.sleep(6000);
-                pod = client.pods().inNamespace(namespace).withName(podId).get();
+                // Check that the pod hasn't failed already
+                pod = client.pods().inNamespace(namespace).withName(podName).get();
                 if (pod == null) {
-                    throw new IllegalStateException("Pod no longer exists: " + podId);
+                    Metrics.metricRegistry().counter(MetricNames.LAUNCH_FAILED).inc();
+                    throw new IllegalStateException("Pod no longer exists: " + podName);
+                }
+                status = pod.getStatus().getPhase();
+                if (POD_TERMINATED_STATES.contains(status)) {
+                    Metrics.metricRegistry().counter(MetricNames.LAUNCH_FAILED).inc();
+                    Metrics.metricRegistry()
+                            .counter(MetricNames.metricNameForPodStatus(status))
+                            .inc();
+                    logLastLines(containerStatuses, podName, namespace, node, null, client);
+                    throw new IllegalStateException("Pod '" + podName + "' is terminated. Status: " + status);
                 }
 
                 containerStatuses = pod.getStatus().getContainerStatuses();
                 List<ContainerStatus> terminatedContainers = new ArrayList<>();
-                Boolean allContainersAreReady = true;
                 for (ContainerStatus info : containerStatuses) {
                     if (info != null) {
-                        if (info.getState().getWaiting() != null) {
-                            // Pod is waiting for some reason
-                            LOGGER.log(INFO, "Container is waiting {0} [{2}]: {1}",
-                                    new Object[]{podId, info.getState().getWaiting(), info.getName()});
-                            logger.printf("Container is waiting %1$s [%3$s]: %2$s%n",
-                                    podId, info.getState().getWaiting(), info.getName());
-                            // break;
-                        }
                         if (info.getState().getTerminated() != null) {
+                            // Container has errored
+                            LOGGER.log(INFO, "Container is terminated {0} [{2}]: {1}", new Object[] {
+                                podName, info.getState().getTerminated(), info.getName()
+                            });
+                            listener.getLogger()
+                                    .printf(
+                                            "Container is terminated %1$s [%3$s]: %2$s%n",
+                                            podName, info.getState().getTerminated(), info.getName());
+                            Metrics.metricRegistry()
+                                    .counter(MetricNames.LAUNCH_FAILED)
+                                    .inc();
                             terminatedContainers.add(info);
-                        } else if (!info.getReady()) {
-                            allContainersAreReady = false;
                         }
                     }
                 }
 
-                if (!terminatedContainers.isEmpty()) {
-                    Map<String, Integer> errors = terminatedContainers.stream().collect(Collectors
-                            .toMap(ContainerStatus::getName, (info) -> info.getState().getTerminated().getExitCode()));
+                checkTerminatedContainers(terminatedContainers, podName, namespace, node, client);
 
-                    // Print the last lines of failed containers
-                    logLastLines(terminatedContainers, podId, namespace, slave, errors, client);
-                    throw new IllegalStateException("Containers are terminated with exit codes: " + errors);
+                if (lastReportTimestamp + REPORT_INTERVAL < System.currentTimeMillis()) {
+                    LOGGER.log(INFO, "Waiting for agent to connect ({1}/{2}): {0}", new Object[] {
+                        podName, waitedForSlave, waitForSlaveToConnect
+                    });
+                    listener.getLogger()
+                            .printf(
+                                    "Waiting for agent to connect (%2$s/%3$s): %1$s%n",
+                                    podName, waitedForSlave, waitForSlaveToConnect);
+                    lastReportTimestamp = System.currentTimeMillis();
                 }
-
-                if (!allContainersAreReady) {
-                    continue;
-                }
-
-                if (validStates.contains(pod.getStatus().getPhase())) {
-                    break;
-                }
-            }
-            String status = pod.getStatus().getPhase();
-            if (!validStates.contains(status)) {
-                throw new IllegalStateException("Container is not running after " + j + " attempts, status: " + status);
-            }
-
-            j = unwrappedTemplate.getSlaveConnectTimeout();
-
-            // now wait for agent to be online
-            for (; i < j; i++) {
-                if (slave.getComputer() == null) {
-                    throw new IllegalStateException("Node was deleted, computer is null");
-                }
-                if (slave.getComputer().isOnline()) {
-                    break;
-                }
-                LOGGER.log(INFO, "Waiting for agent to connect ({1}/{2}): {0}", new Object[]{podId, i, j});
-                logger.printf("Waiting for agent to connect (%2$s/%3$s): %1$s%n", podId, i, j);
                 Thread.sleep(1000);
             }
-            if (!slave.getComputer().isOnline()) {
-                if (containerStatuses != null) {
-                    logLastLines(containerStatuses, podId, namespace, slave, null, client);
-                }
-                throw new IllegalStateException("Agent is not connected after " + j + " attempts, status: " + status);
+            if (slaveComputer == null || slaveComputer.isOffline()) {
+                Metrics.metricRegistry().counter(MetricNames.LAUNCH_FAILED).inc();
+                Metrics.metricRegistry().counter(MetricNames.FAILED_TIMEOUT).inc();
+
+                logLastLines(containerStatuses, podName, namespace, node, null, client);
+                throw new IllegalStateException(
+                        "Agent is not connected after " + waitedForSlave + " seconds, status: " + status);
             }
+
             computer.setAcceptingTasks(true);
-        } catch (Throwable ex) {
-            LOGGER.log(Level.WARNING, String.format("Error in provisioning; agent=%s, template=%s", slave, unwrappedTemplate), ex);
-            LOGGER.log(Level.FINER, "Removing Jenkins node: {0}", slave.getNodeName());
+            launched.set(true);
             try {
-                slave.terminate();
+                // We need to persist the "launched" setting...
+                node.save();
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, "Could not save() agent: " + e.getMessage(), e);
+            }
+            Metrics.metricRegistry().counter(MetricNames.PODS_LAUNCHED).inc();
+        } catch (Throwable ex) {
+            setProblem(ex);
+            Functions.printStackTrace(ex, node.getRunListener().error("Failed to launch " + node.getPodName()));
+            LOGGER.log(
+                    Level.WARNING, String.format("Error in provisioning; agent=%s, template=%s", node, template), ex);
+            LOGGER.log(Level.FINER, "Removing Jenkins node: {0}", node.getNodeName());
+            try {
+                node.terminate();
             } catch (IOException | InterruptedException e) {
                 LOGGER.log(Level.WARNING, "Unable to remove Jenkins node", e);
             }
-            throw Throwables.propagate(ex);
-        }
-        launched = true;
-        try {
-            // We need to persist the "launched" setting...
-            slave.save();
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Could not save() agent: " + e.getMessage(), e);
+            throw new RuntimeException(ex);
         }
     }
 
-    private Pod getPodTemplate(KubernetesSlave slave, PodTemplate template) {
-        return template == null ? null : template.build(slave);
+    private void checkTerminatedContainers(
+            List<ContainerStatus> terminatedContainers,
+            String podId,
+            String namespace,
+            KubernetesSlave slave,
+            KubernetesClient client) {
+        if (!terminatedContainers.isEmpty()) {
+            Map<String, Integer> errors = terminatedContainers.stream()
+                    .collect(Collectors.toMap(
+                            ContainerStatus::getName,
+                            (info) -> info.getState().getTerminated().getExitCode()));
+
+            // Print the last lines of failed containers
+            logLastLines(terminatedContainers, podId, namespace, slave, errors, client);
+            throw new IllegalStateException("Containers are terminated with exit codes: " + errors);
+        }
     }
 
     /**
      * Log the last lines of containers logs
      */
-    private void logLastLines(List<ContainerStatus> containers, String podId, String namespace, KubernetesSlave slave,
-                              Map<String, Integer> errors, KubernetesClient client) {
-        for (ContainerStatus containerStatus : containers) {
-            String containerName = containerStatus.getName();
-            PrettyLoggable<String, LogWatch> tailingLines = client.pods().inNamespace(namespace)
-                    .withName(podId).inContainer(containerStatus.getName()).tailingLines(30);
-            String log = tailingLines.getLog();
-            if (!StringUtils.isBlank(log)) {
-                String msg = errors != null ? String.format(" exited with error %s", errors.get(containerName))
-                        : "";
-                LOGGER.log(Level.SEVERE,
-                        "Error in provisioning; agent={0}, template={1}. Container {2}{3}. Logs: {4}",
-                        new Object[]{slave, slave.getTemplate(), containerName, msg, tailingLines.getLog()});
+    private void logLastLines(
+            @CheckForNull List<ContainerStatus> containers,
+            String podId,
+            String namespace,
+            KubernetesSlave slave,
+            Map<String, Integer> errors,
+            KubernetesClient client) {
+        if (containers != null) {
+            for (ContainerStatus containerStatus : containers) {
+                String containerName = containerStatus.getName();
+                String log = client.pods()
+                        .inNamespace(namespace)
+                        .withName(podId)
+                        .inContainer(containerStatus.getName())
+                        .tailingLines(30)
+                        .getLog();
+                if (!StringUtils.isBlank(log)) {
+                    String msg =
+                            errors != null ? String.format(" exited with error %s", errors.get(containerName)) : "";
+                    LOGGER.log(
+                            Level.SEVERE,
+                            "Error in provisioning; agent={0}, template={1}. Container {2}{3}. Logs: {4}",
+                            new Object[] {slave, slave.getTemplateOrNull(), containerName, msg, log});
+                }
             }
         }
     }
 
+    /**
+     * The last problem that occurred, if any.
+     * @return
+     */
+    @CheckForNull
+    public Throwable getProblem() {
+        return problem;
+    }
+
+    public void setProblem(@CheckForNull Throwable problem) {
+        this.problem = problem;
+    }
 }

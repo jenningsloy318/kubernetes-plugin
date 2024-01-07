@@ -24,19 +24,18 @@
 
 package org.csanchez.jenkins.plugins.kubernetes.model;
 
-import org.jenkinsci.Symbol;
-import org.kohsuke.stapler.DataBoundConstructor;
-
 import hudson.Extension;
 import hudson.model.Descriptor;
 import io.fabric8.kubernetes.api.model.EnvVar;
 import io.fabric8.kubernetes.api.model.EnvVarBuilder;
 import io.fabric8.kubernetes.api.model.EnvVarSourceBuilder;
 import io.fabric8.kubernetes.api.model.SecretKeySelectorBuilder;
+import org.jenkinsci.Symbol;
+import org.kohsuke.stapler.DataBoundConstructor;
 
 /**
  * Environment variables created from kubernetes secrets.
- * 
+ *
  * @since 0.13
  */
 public class SecretEnvVar extends TemplateEnvVar {
@@ -45,22 +44,28 @@ public class SecretEnvVar extends TemplateEnvVar {
 
     private String secretName;
     private String secretKey;
+    private Boolean optional;
 
     @DataBoundConstructor
-    public SecretEnvVar(String key, String secretName, String secretKey) {
+    public SecretEnvVar(String key, String secretName, String secretKey, Boolean optional) {
         super(key);
         this.secretName = secretName;
         this.secretKey = secretKey;
+        this.optional = optional;
     }
 
     @Override
     public EnvVar buildEnvVar() {
         return new EnvVarBuilder() //
                 .withName(getKey()) //
-                .withValueFrom(new EnvVarSourceBuilder() //
-                        .withSecretKeyRef(
-                                new SecretKeySelectorBuilder().withKey(secretKey).withName(secretName).build()) //
-                        .build()) //
+                .withValueFrom(
+                        new EnvVarSourceBuilder() //
+                                .withSecretKeyRef((new SecretKeySelectorBuilder()
+                                        .withKey(secretKey)
+                                        .withName(secretName)
+                                        .withOptional(optional)
+                                        .build())) //
+                                .build()) //
                 .build();
     }
 
@@ -80,9 +85,18 @@ public class SecretEnvVar extends TemplateEnvVar {
         this.secretKey = secretKey;
     }
 
+    public Boolean getOptional() {
+        return optional;
+    }
+
+    public void setOptional(Boolean optional) {
+        this.optional = optional;
+    }
+
     @Override
     public String toString() {
-        return "SecretEnvVar [secretName=" + secretName + ", secretKey=" + secretKey + ", getKey()=" + getKey() + "]";
+        return "SecretEnvVar [secretName=" + secretName + ", secretKey=" + secretKey + ", getKey()=" + getKey()
+                + ", optional=" + String.valueOf(getOptional()) + "]";
     }
 
     @Extension

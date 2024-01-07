@@ -24,18 +24,47 @@
 
 package org.csanchez.jenkins.plugins.kubernetes.volumes.workspace;
 
+import hudson.model.AbstractDescribableImpl;
+import io.fabric8.kubernetes.api.model.ObjectMeta;
+import io.fabric8.kubernetes.api.model.PersistentVolumeClaim;
+import io.fabric8.kubernetes.api.model.Volume;
+import io.fabric8.kubernetes.client.KubernetesClient;
 import java.io.Serializable;
 
-import hudson.model.AbstractDescribableImpl;
-import io.fabric8.kubernetes.api.model.Volume;
-
 /**
- * Base class for all Kubernetes volume types
+ * Base class for all Kubernetes workspace volume types
  */
 public abstract class WorkspaceVolume extends AbstractDescribableImpl<WorkspaceVolume> implements Serializable {
 
     private static final long serialVersionUID = 5367004248055474414L;
 
+    public static WorkspaceVolume merge(WorkspaceVolume parentWorkspaceVolume, WorkspaceVolume templateVolume) {
+        // Only override parent if differ from the default
+        return getDefault().equals(templateVolume) ? parentWorkspaceVolume : templateVolume;
+    }
+
+    public static WorkspaceVolume getDefault() {
+        return new EmptyDirWorkspaceVolume(false);
+    }
+
+    // Builds a Volume model with the given name.require podName to generate pvc name
+    public Volume buildVolume(String volumeName, String podName) {
+        return buildVolume(volumeName);
+    }
+
     // Builds a Volume model with the given name.
-    public abstract Volume buildVolume(String volumeName);
+    @Deprecated
+    public Volume buildVolume(String volumeName) {
+        throw new UnsupportedOperationException("could not build volume without podName");
+    }
+
+    /**
+     * Create the workspace volume
+     * @param client Kubernetes client
+     * @param podMetaData Kubernetes pod metadata
+     * @return the created persistent volume claim
+     */
+    public PersistentVolumeClaim createVolume(KubernetesClient client, ObjectMeta podMetaData) {
+        return null;
+    }
 }

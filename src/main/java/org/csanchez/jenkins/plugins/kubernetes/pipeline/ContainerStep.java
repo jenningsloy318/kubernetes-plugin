@@ -1,21 +1,21 @@
 package org.csanchez.jenkins.plugins.kubernetes.pipeline;
 
+import hudson.Extension;
+import hudson.FilePath;
+import hudson.Util;
+import hudson.model.Node;
+import hudson.model.TaskListener;
 import java.io.Serializable;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.Set;
-
 import org.jenkinsci.plugins.workflow.steps.Step;
 import org.jenkinsci.plugins.workflow.steps.StepContext;
 import org.jenkinsci.plugins.workflow.steps.StepDescriptor;
 import org.jenkinsci.plugins.workflow.steps.StepExecution;
 import org.kohsuke.stapler.DataBoundConstructor;
 import org.kohsuke.stapler.DataBoundSetter;
-
-import com.google.common.collect.ImmutableSet;
-
-import hudson.Extension;
-import hudson.FilePath;
-import hudson.model.Node;
-import hudson.model.TaskListener;
 
 public class ContainerStep extends Step implements Serializable {
 
@@ -34,8 +34,8 @@ public class ContainerStep extends Step implements Serializable {
     }
 
     @DataBoundSetter
-    public void setShell(String shell){
-        this.shell = shell;
+    public void setShell(String shell) {
+        this.shell = Util.fixEmpty(shell);
     }
 
     public String getShell() {
@@ -66,13 +66,9 @@ public class ContainerStep extends Step implements Serializable {
         }
 
         @Override
-        public boolean isAdvanced() {
-            return true;
-        }
-
-        @Override
         public Set<? extends Class<?>> getRequiredContext() {
-            return ImmutableSet.of(Node.class, FilePath.class, TaskListener.class);
+            return Collections.unmodifiableSet(
+                    new HashSet<>(Arrays.asList(Node.class, FilePath.class, TaskListener.class)));
         }
     }
 }

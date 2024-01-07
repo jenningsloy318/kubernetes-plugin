@@ -1,0 +1,23 @@
+metadata:
+  namespace: yaml-namespace
+spec:
+  containers:
+  - name: jnlp
+    image: jenkins-jnlp-override
+    securityContext:
+      runAsUser: 3000
+      runAsGroup: 4000
+    volumeMounts:
+    - mountPath: /home/jenkins/agent
+      name: host-volume
+    resources:
+      limits:
+        cpu: 2
+        memory: 2Gi
+      requests:
+        cpu: 200m
+        memory: 256Mi
+  volumes:
+  - name: host-volume
+    hostPath:
+      path: /host/data

@@ -1,0 +1,23 @@
+<?jelly escape-by-default='true'?>
+<j:jelly xmlns:j="jelly:core" xmlns:st="jelly:stapler" xmlns:d="jelly:define" xmlns:l="/lib/layout" xmlns:t="/lib/hudson" xmlns:f="/lib/form" xmlns:kube="/org/csanchez/jenkins/plugins/kubernetes/form">
+	<f:section title="${descriptor.displayName}">
+		<f:description>
+			${%Allow pipeline support for the following restricted Kubernetes Clouds}
+		</f:description>
+		<f:entry field="permittedClouds">
+				<j:set var="effectivePermissions" value="${descriptor.effectivePermissions}"/>
+				<j:choose>
+					<j:when test="${empty effectivePermissions}">
+						<f:entry title="-- none --" />
+					</j:when>
+					<j:otherwise>
+						<j:forEach var="permission" items="${effectivePermissions}">
+								<j:set var="readOnlyMode" value="${permission.readonly}"/>
+								<f:checkbox title="${permission.name} ${permission.inherited ? '(inherited)' : ''}" json="${permission.name}"
+											checked="${permission.granted or instance.permittedClouds.contains(permission.name)}" /><br/>
+						</j:forEach>
+					</j:otherwise>
+				</j:choose>
+		</f:entry>
+	</f:section>
+</j:jelly>

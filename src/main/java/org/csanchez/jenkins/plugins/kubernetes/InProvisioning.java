@@ -2,15 +2,12 @@ package org.csanchez.jenkins.plugins.kubernetes;
 
 import static java.util.stream.Collectors.toSet;
 
-import java.util.Set;
-
-import javax.annotation.CheckForNull;
-import javax.annotation.Nonnull;
-
+import edu.umd.cs.findbugs.annotations.CheckForNull;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import hudson.ExtensionList;
 import hudson.ExtensionPoint;
 import hudson.model.Label;
-import hudson.model.Node;
+import java.util.Set;
 
 /**
  * Collects the Kubernetes agents currently in provisioning.
@@ -22,11 +19,9 @@ public abstract class InProvisioning implements ExtensionPoint {
      * @param label the {@link Label} being checked.
      * @return the agents names in provisioning according to all implementations of this extension point for the given label.
      */
-    @Nonnull
+    @NonNull
     public static Set<String> getAllInProvisioning(@CheckForNull Label label) {
-        return all().stream()
-                .flatMap(c -> c.getInProvisioning(label).stream())
-                .collect(toSet());
+        return all().stream().flatMap(c -> c.getInProvisioning(label).stream()).collect(toSet());
     }
 
     public static ExtensionList<InProvisioning> all() {
@@ -39,6 +34,6 @@ public abstract class InProvisioning implements ExtensionPoint {
      * @param label The label being checked
      * @return The agents names in provisioning for the current label.
      */
-    @Nonnull
+    @NonNull
     public abstract Set<String> getInProvisioning(Label label);
 }

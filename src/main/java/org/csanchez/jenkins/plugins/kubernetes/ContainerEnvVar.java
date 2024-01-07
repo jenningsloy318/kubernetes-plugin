@@ -1,19 +1,21 @@
 package org.csanchez.jenkins.plugins.kubernetes;
 
-import javax.annotation.CheckForNull;
-import javax.annotation.Nonnull;
-
+import edu.umd.cs.findbugs.annotations.CheckForNull;
+import edu.umd.cs.findbugs.annotations.NonNull;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
+import hudson.Extension;
+import hudson.model.Descriptor;
+import hudson.model.DescriptorVisibilityFilter;
 import org.csanchez.jenkins.plugins.kubernetes.model.KeyValueEnvVar;
 import org.jenkinsci.Symbol;
 import org.kohsuke.stapler.DataBoundConstructor;
 
-import hudson.Extension;
-import hudson.model.Descriptor;
-import hudson.model.DescriptorVisibilityFilter;
-
 /**
  * Deprecated, use KeyValueEnvVar
  */
+@SuppressFBWarnings(
+        value = "SE_NO_SERIALVERSIONID",
+        justification = "Serialization happens exclusively through XStream and not Java Serialization.")
 @Deprecated
 public class ContainerEnvVar extends KeyValueEnvVar {
 
@@ -42,7 +44,7 @@ public class ContainerEnvVar extends KeyValueEnvVar {
     @Extension
     public static class DescriptorVisibilityFilterImpl extends DescriptorVisibilityFilter {
         @Override
-        public boolean filter(@CheckForNull Object context, @Nonnull Descriptor descriptor) {
+        public boolean filter(@CheckForNull Object context, @NonNull Descriptor descriptor) {
             return !(descriptor instanceof ContainerEnvVar.DescriptorImpl);
         }
     }

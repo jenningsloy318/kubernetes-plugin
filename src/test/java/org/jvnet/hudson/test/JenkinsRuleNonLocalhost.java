@@ -24,15 +24,17 @@
 
 package org.jvnet.hudson.test;
 
+import java.net.BindException;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-
 import javax.servlet.ServletContext;
-
+import org.apache.commons.lang3.StringUtils;
+import org.eclipse.jetty.http.HttpCompliance;
+import org.eclipse.jetty.http.UriCompliance;
 import org.eclipse.jetty.server.HttpConfiguration;
 import org.eclipse.jetty.server.HttpConnectionFactory;
 import org.eclipse.jetty.server.Server;
@@ -40,6 +42,7 @@ import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.webapp.Configuration;
 import org.eclipse.jetty.webapp.WebAppContext;
 import org.eclipse.jetty.webapp.WebXmlConfiguration;
+import org.eclipse.jetty.websocket.server.config.JettyWebSocketServletContainerInitializer;
 
 /**
  * @author Carlos Sanchez
@@ -48,7 +51,7 @@ import org.eclipse.jetty.webapp.WebXmlConfiguration;
 public class JenkinsRuleNonLocalhost extends JenkinsRule {
     private static final Logger LOGGER = Logger.getLogger(JenkinsRuleNonLocalhost.class.getName());
 
-    private static final String HOST = System.getProperty("connectorHost", "192.168.64.1");
+    private static final String HOST = System.getProperty("connectorHost");
 
     private Integer port;
 
@@ -56,40 +59,46 @@ public class JenkinsRuleNonLocalhost extends JenkinsRule {
         this.port = port;
     }
 
-    public JenkinsRuleNonLocalhost() {
-    }
+    public JenkinsRuleNonLocalhost() {}
 
     /**
      * Prepares a webapp hosting environment to get {@link javax.servlet.ServletContext} implementation
      * that we need for testing.
      */
     protected ServletContext createWebServer() throws Exception {
-        server = new Server(new ThreadPoolImpl(new ThreadPoolExecutor(10, 10, 10L, TimeUnit.SECONDS, new LinkedBlockingQueue<Runnable>(),new ThreadFactory() {
-            public Thread newThread(Runnable r) {
-                Thread t = new Thread(r);
-                t.setName("Jetty Thread Pool");
-                return t;
-            }
-        })));
+        server = new Server(new ThreadPoolImpl(new ThreadPoolExecutor(
+                10, 10, 10L, TimeUnit.SECONDS, new LinkedBlockingQueue<Runnable>(), new ThreadFactory() {
+                    public Thread newThread(Runnable r) {
+                        Thread t = new Thread(r);
+                        t.setName("Jetty Thread Pool");
+                        return t;
+                    }
+                })));
 
         WebAppContext context = new WebAppContext(WarExploder.getExplodedDir().getPath(), contextPath);
         context.setClassLoader(getClass().getClassLoader());
-        context.setConfigurations(new Configuration[]{new WebXmlConfiguration()});
+        context.setConfigurations(new Configuration[] {new WebXmlConfiguration()});
         context.addBean(new NoListenerConfiguration(context));
+        JettyWebSocketServletContainerInitializer.configure(context, null);
         server.setHandler(context);
         context.setMimeTypes(MIME_TYPES);
         context.getSecurityHandler().setLoginService(configureUserRealm());
         context.setResourceBase(WarExploder.getExplodedDir().getPath());
 
         ServerConnector connector = new ServerConnector(server);
-        HttpConfiguration config = connector.getConnectionFactory(HttpConnectionFactory.class).getHttpConfiguration();
+        HttpConfiguration config =
+                connector.getConnectionFactory(HttpConnectionFactory.class).getHttpConfiguration();
         // use a bigger buffer as Stapler traces can get pretty large on deeply nested URL
         config.setRequestHeaderSize(12 * 1024);
+        config.setHttpCompliance(HttpCompliance.RFC7230);
+        config.setUriCompliance(UriCompliance.LEGACY);
+        System.err.println("Listening on host address: " + HOST);
         connector.setHost(HOST);
 
-        if (System.getProperty("port")!=null) {
-            LOGGER.info("Overriding port using system property: " + System.getProperty("port"));
-            connector.setPort(Integer.parseInt(System.getProperty("port")));
+        String customPort = System.getProperty("port");
+        if (StringUtils.isNotBlank(customPort)) {
+            LOGGER.info("Overriding port using system property: " + customPort);
+            connector.setPort(Integer.parseInt(customPort));
         } else {
             if (port != null) {
                 connector.setPort(port);
@@ -97,12 +106,16 @@ public class JenkinsRuleNonLocalhost extends JenkinsRule {
         }
 
         server.addConnector(connector);
-        server.start();
+        try {
+            server.start();
+        } catch (BindException e) {
+            throw new BindException(String.format(
+                    "Error binding to %s:%d %s", connector.getHost(), connector.getPort(), e.getMessage()));
+        }
 
         localPort = connector.getLocalPort();
         LOGGER.log(Level.INFO, "Running on {0}", getURL());
 
         return context.getServletContext();
     }
-
 }

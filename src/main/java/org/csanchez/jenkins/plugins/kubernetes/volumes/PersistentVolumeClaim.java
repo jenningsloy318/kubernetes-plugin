@@ -24,20 +24,23 @@
 
 package org.csanchez.jenkins.plugins.kubernetes.volumes;
 
-import javax.annotation.CheckForNull;
-import javax.annotation.Nonnull;
-
-import org.jenkinsci.Symbol;
-import org.kohsuke.stapler.DataBoundConstructor;
-
+import edu.umd.cs.findbugs.annotations.CheckForNull;
+import edu.umd.cs.findbugs.annotations.NonNull;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import hudson.Extension;
 import hudson.model.Descriptor;
 import io.fabric8.kubernetes.api.model.Volume;
 import io.fabric8.kubernetes.api.model.VolumeBuilder;
+import org.jenkinsci.Symbol;
+import org.kohsuke.stapler.DataBoundConstructor;
 
+@SuppressFBWarnings(
+        value = "SE_NO_SERIALVERSIONID",
+        justification = "Serialization happens exclusively through XStream and not Java Serialization.")
 public class PersistentVolumeClaim extends PodVolume {
     private String mountPath;
     private String claimName;
+
     @CheckForNull
     private Boolean readOnly;
 
@@ -57,7 +60,7 @@ public class PersistentVolumeClaim extends PodVolume {
         return claimName;
     }
 
-    @Nonnull
+    @NonNull
     public Boolean getReadOnly() {
         return readOnly != null && readOnly;
     }
@@ -67,8 +70,8 @@ public class PersistentVolumeClaim extends PodVolume {
         return new VolumeBuilder()
                 .withName(volumeName)
                 .withNewPersistentVolumeClaim()
-                    .withClaimName(getClaimName())
-                    .withReadOnly(getReadOnly())
+                .withClaimName(getClaimName())
+                .withReadOnly(getReadOnly())
                 .and()
                 .build();
     }

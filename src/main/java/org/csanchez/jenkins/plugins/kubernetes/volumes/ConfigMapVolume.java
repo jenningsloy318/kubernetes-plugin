@@ -24,23 +24,30 @@
 
 package org.csanchez.jenkins.plugins.kubernetes.volumes;
 
-import org.jenkinsci.Symbol;
-import org.kohsuke.stapler.DataBoundConstructor;
-
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import hudson.Extension;
+import hudson.Util;
 import hudson.model.Descriptor;
 import io.fabric8.kubernetes.api.model.Volume;
 import io.fabric8.kubernetes.api.model.VolumeBuilder;
+import org.jenkinsci.Symbol;
+import org.kohsuke.stapler.DataBoundConstructor;
+import org.kohsuke.stapler.DataBoundSetter;
 
+@SuppressFBWarnings(
+        value = "SE_NO_SERIALVERSIONID",
+        justification = "Serialization happens exclusively through XStream and not Java Serialization.")
 public class ConfigMapVolume extends PodVolume {
-
     private String mountPath;
+    private String subPath;
     private String configMapName;
+    private Boolean optional;
 
     @DataBoundConstructor
-    public ConfigMapVolume(String mountPath, String configMapName) {
+    public ConfigMapVolume(String mountPath, String configMapName, Boolean optional) {
         this.mountPath = mountPath;
         this.configMapName = configMapName;
+        this.optional = optional;
     }
 
     @Override
@@ -48,7 +55,8 @@ public class ConfigMapVolume extends PodVolume {
         return new VolumeBuilder()
                 .withName(volumeName)
                 .withNewConfigMap()
-                    .withName(getConfigMapName())
+                .withName(getConfigMapName())
+                .withOptional(getOptional())
                 .and()
                 .build();
     }
@@ -60,6 +68,24 @@ public class ConfigMapVolume extends PodVolume {
     @Override
     public String getMountPath() {
         return mountPath;
+    }
+
+    public Boolean getOptional() {
+        return optional;
+    }
+
+    public String getSubPath() {
+        return subPath;
+    }
+
+    @DataBoundSetter
+    public void setSubPath(String subPath) {
+        this.subPath = Util.fixEmpty(subPath);
+    }
+
+    protected Object readResolve() {
+        this.subPath = Util.fixEmpty(subPath);
+        return this;
     }
 
     @Extension

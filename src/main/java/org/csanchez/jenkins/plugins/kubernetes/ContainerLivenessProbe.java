@@ -1,27 +1,36 @@
 package org.csanchez.jenkins.plugins.kubernetes;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import hudson.Extension;
 import hudson.model.AbstractDescribableImpl;
 import hudson.model.Descriptor;
-import hudson.util.FormValidation;
+import java.io.Serializable;
 import org.jenkinsci.Symbol;
 import org.kohsuke.stapler.DataBoundConstructor;
-import org.kohsuke.stapler.QueryParameter;
-import java.io.Serializable;
 
 /**
  * Created by fabricio.leotti on 26/04/17.
  */
+@SuppressFBWarnings(
+        value = "SE_NO_SERIALVERSIONID",
+        justification = "Serialization happens exclusively through XStream and not Java Serialization.")
 public class ContainerLivenessProbe extends AbstractDescribableImpl<ContainerLivenessProbe> implements Serializable {
-        private String execArgs;
-        private int timeoutSeconds;
-        private int initialDelaySeconds;
-        private int failureThreshold;
-        private int periodSeconds;
-        private int successThreshold;
+
+    private String execArgs;
+    private int timeoutSeconds;
+    private int initialDelaySeconds;
+    private int failureThreshold;
+    private int periodSeconds;
+    private int successThreshold;
 
     @DataBoundConstructor
-    public ContainerLivenessProbe(String execArgs, int timeoutSeconds, int initialDelaySeconds, int failureThreshold, int periodSeconds, int successThreshold) {
+    public ContainerLivenessProbe(
+            String execArgs,
+            int timeoutSeconds,
+            int initialDelaySeconds,
+            int failureThreshold,
+            int periodSeconds,
+            int successThreshold) {
         this.execArgs = execArgs;
         this.timeoutSeconds = timeoutSeconds;
         this.initialDelaySeconds = initialDelaySeconds;
@@ -76,6 +85,17 @@ public class ContainerLivenessProbe extends AbstractDescribableImpl<ContainerLiv
 
     public void setSuccessThreshold(int successThreshold) {
         this.successThreshold = successThreshold;
+    }
+
+    @Override
+    public String toString() {
+        return "ContainerLivenessProbe{" + "execArgs='"
+                + execArgs + '\'' + ", timeoutSeconds="
+                + timeoutSeconds + ", initialDelaySeconds="
+                + initialDelaySeconds + ", failureThreshold="
+                + failureThreshold + ", periodSeconds="
+                + periodSeconds + ", successThreshold="
+                + successThreshold + '}';
     }
 
     @Extension

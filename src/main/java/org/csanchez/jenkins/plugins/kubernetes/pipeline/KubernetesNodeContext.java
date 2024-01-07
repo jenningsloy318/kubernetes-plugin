@@ -17,42 +17,52 @@
 package org.csanchez.jenkins.plugins.kubernetes.pipeline;
 
 import hudson.AbortException;
-import hudson.FilePath;
 import hudson.model.Node;
-import io.fabric8.kubernetes.client.Config;
 import io.fabric8.kubernetes.client.KubernetesClient;
-import org.csanchez.jenkins.plugins.kubernetes.KubernetesCloud;
+import java.io.IOException;
+import java.io.Serializable;
 import org.csanchez.jenkins.plugins.kubernetes.KubernetesSlave;
 import org.jenkinsci.plugins.workflow.steps.StepContext;
 
 /**
  * helper class for steps running in a kubernetes `node` context
  */
-class KubernetesNodeContext {
-    private static final transient String HOSTNAME_FILE = "/etc/hostname";
+class KubernetesNodeContext implements Serializable {
+
+    private static final long serialVersionUID = 1L;
+
     private StepContext context;
-    private FilePath workspace;
+
+    private String podName;
+    private String namespace;
 
     KubernetesNodeContext(StepContext context) throws Exception {
         this.context = context;
-        workspace = context.get(FilePath.class);
+        KubernetesSlave agent = getKubernetesSlave();
+        this.podName = agent.getPodName();
+        this.namespace = agent.getNamespace();
     }
 
+    // TODO remove the Exception thrown
     String getPodName() throws Exception {
-        return workspace.child(HOSTNAME_FILE).readToString().trim();
+        return podName;
     }
 
+    // TODO remove the Exception thrown
     public String getNamespace() throws Exception {
-        return workspace.child(Config.KUBERNETES_NAMESPACE_PATH).readToString().trim();
+        return namespace;
     }
 
     KubernetesClient connectToCloud() throws Exception {
+        return getKubernetesSlave().getKubernetesCloud().connect();
+    }
+
+    private KubernetesSlave getKubernetesSlave() throws IOException, InterruptedException {
         Node node = context.get(Node.class);
-        if (! (node instanceof KubernetesSlave)) {
-            throw new AbortException(String.format("Node is not a Kubernetes node: %s", node != null ? node.getNodeName() : null));
+        if (!(node instanceof KubernetesSlave)) {
+            throw new AbortException(
+                    String.format("Node is not a Kubernetes node: %s", node != null ? node.getNodeName() : null));
         }
-        KubernetesSlave slave = (KubernetesSlave) node;
-        KubernetesCloud cloud = slave.getKubernetesCloud();
-        return cloud.connect();
+        return (KubernetesSlave) node;
     }
 }

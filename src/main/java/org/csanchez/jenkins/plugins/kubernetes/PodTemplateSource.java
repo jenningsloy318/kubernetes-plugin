@@ -2,21 +2,18 @@ package org.csanchez.jenkins.plugins.kubernetes;
 
 import static java.util.stream.Collectors.toList;
 
-import java.util.Collection;
-import java.util.List;
-
-import javax.annotation.Nonnull;
-
+import edu.umd.cs.findbugs.annotations.NonNull;
 import hudson.ExtensionList;
 import hudson.ExtensionPoint;
+import java.util.Collection;
+import java.util.List;
 
 /**
  * A source of pod templates.
  */
 public abstract class PodTemplateSource implements ExtensionPoint {
-    public static List<PodTemplate> getAll(@Nonnull KubernetesCloud cloud) {
-        return ExtensionList.lookup(PodTemplateSource.class)
-                .stream()
+    public static List<PodTemplate> getAll(@NonNull KubernetesCloud cloud) {
+        return ExtensionList.lookup(PodTemplateSource.class).stream()
                 .map(s -> s.getList(cloud))
                 .flatMap(Collection::stream)
                 .collect(toList());
@@ -27,6 +24,6 @@ public abstract class PodTemplateSource implements ExtensionPoint {
      * @return The list of {@link PodTemplate} contributed by this implementation.
      * @param cloud
      */
-    @Nonnull
-    protected abstract List<PodTemplate> getList(@Nonnull KubernetesCloud cloud);
+    @NonNull
+    protected abstract List<PodTemplate> getList(@NonNull KubernetesCloud cloud);
 }
