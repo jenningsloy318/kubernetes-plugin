@@ -42,7 +42,8 @@ public class KubernetesClientProvider {
                 Client client = (Client) value;
                 if (client != null) {
                     LOGGER.log(
-                            Level.FINE, () -> "Expiring Kubernetes client " + key + " " + client.client + ": " + cause);
+                            Level.FINE, () -> "Closing Kubernetes client " + key + " " + client.client + ": " + cause);
+                    client.client.close();
                 }
             })
             .build();
