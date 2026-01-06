@@ -122,8 +122,8 @@ public class KubernetesClientProvider {
         clients.invalidateAll();
     }
 
-    // set ordinal to 1 so it runs ahead of Reaper
-    @Extension(ordinal = 1)
+    // set ordinal to -1 so it runs after Reaper (which needs to close watches before we close the client)
+    @Extension(ordinal = -1)
     public static class SaveableListenerImpl extends SaveableListener {
         @Override
         public void onChange(Saveable o, XmlFile file) {
