@@ -53,7 +53,8 @@ public class KubernetesClientProvider {
     static KubernetesClient createClient(KubernetesCloud cloud) throws KubernetesAuthException, IOException {
         String displayName = cloud.getDisplayName();
         final Client c = clients.getIfPresent(displayName);
-        if (c == null) {
+        int validity = getValidity(cloud);
+        if (c == null || c.getValidity() != validity) {
             KubernetesClient client = new KubernetesFactoryAdapter(
                             cloud.getServerUrl(),
                             cloud.getNamespace(),
@@ -65,7 +66,7 @@ public class KubernetesClientProvider {
                             cloud.getMaxRequestsPerHost(),
                             cloud.isUseJenkinsProxy())
                     .createClient();
-            clients.put(displayName, new Client(getValidity(cloud), client));
+            clients.put(displayName, new Client(validity, client));
             LOGGER.log(Level.FINE, "Created new Kubernetes client: {0} {1}", new Object[] {displayName, client});
             return client;
         }
@@ -122,7 +123,9 @@ public class KubernetesClientProvider {
         clients.invalidateAll();
     }
 
-    // set ordinal to -1 so it runs after Reaper (which needs to close watches before we close the client)
+    // Ordinal -1: runs after Reaper (ordinal 0) so watches close before client.
+    // Note: createClient() validity check handles the common case where Reaper
+    // needs a fresh client immediately when cloud config changes.
     @Extension(ordinal = -1)
     public static class SaveableListenerImpl extends SaveableListener {
         @Override
